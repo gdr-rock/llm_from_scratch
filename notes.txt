@@ -1,0 +1,43 @@
+tokenization/data pipeline
+        ↓
+causal multi-head attention
+        ↓
+LayerNorm
+        ↓
+feed-forward network
+        ↓
+TransformerBlock
+        ↓
+GPTModel
+        ↓
+next-token loss
+        ↓
+training loop
+        ↓
+validation
+        ↓
+generation
+        ↓
+temperature / top-k
+        ↓
+checkpoint loading
+        ↓
+mapping real GPT-2 weights into your architecture
+--------------------------
+LayerNorm does two things:
+1. Centers the features around zero (subtracts mean).
+2. Normalizes their variance (divides by standard deviation).
+RMS Norm simplies this, Both control the scale of features, but RMSNorm doesn't force them to be centered at zero.
+Less computation: no mean subtraction or variance calculation.
+Helps control activation magnitudes in deep networks.
+Preserves information about the feature vector's offset that LayerNorm removes.
+Works well in architectures such as Llama.
+
+We divide by sqrt(d) in attention as the std devviation grows prop to sqrt(d), we want to control it, as softmax can become overconfident in big scores
+- Prevent softmax saturation
+- attention scores naturally get larger in magnitude as the head dimension increases.
+
+With RoPE, you remove the learned position embedding and instead rotate Q and K inside attention:(not to V)
+- Normal Postional encoding tells the model where each token is located. RoPE works differently.
+Instead of adding a position vector to token embeddings, it rotates the query and key vectors by an angle determined by token position.
+- Why rotate? Because rotations have a useful mathematical property: the dot product between rotated Q and K can depend on their relative positional distance.
