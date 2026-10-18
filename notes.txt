@@ -41,3 +41,23 @@ With RoPE, you remove the learned position embedding and instead rotate Q and K 
 - Normal Postional encoding tells the model where each token is located. RoPE works differently.
 Instead of adding a position vector to token embeddings, it rotates the query and key vectors by an angle determined by token position.
 - Why rotate? Because rotations have a useful mathematical property: the dot product between rotated Q and K can depend on their relative positional distance.
+- rotation is a mathematical operation that works on two coordinates.
+- RoPE pairs features inside each vector:
+- RoPE rotates each token's Q and K vectors based on its position.
+- Attention compares the rotated Q and K vectors.
+- Their dot product naturally incorporates relative position information.
+- adjacent pairing or split-half pairing - which pairing method doesnt matter when training from scratch, but when using pre-trainined model, need to check
+- split half is easy to implment
+- adjacent pairing -     rotated = torch.stack([-b, a], dim=-1) ;     return rotated.flatten(-2)
+- split-halfing - rotated = torch.cat([-x2, x1], dim=-1) ; result = x * cos + rotated * sin
+
+SwiGLU
+- Instead of passing features through one transformation, SwiGLU creates two paths. One path produces values, and the other controls (gates) those values.
+- the three projections?
+- gate_proj: transforms the input and applies SiLU. This determines how strongly different features contribute.
+- value_proj: transforms the same input independently. These are the values that will be modulated.
+- out_proj: converts the multiplied result back to the original embedding dimension.
+- \[\text{SiLU}(x)=x\cdot\sigmoid(x) \]
+- SiLU is not restricted to values between 0 and 1. It can also produce negative values or values greater than 1.
+- SwiGLU uses three linear projections instead of two, so using 4 * emb_dim gives you approximately 50% more projection parameters than your old GELU feed-forward.
+- use hidden_dim = int((8 / 3) * cfg["emb_dim"])

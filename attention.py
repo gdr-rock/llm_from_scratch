@@ -70,6 +70,14 @@ class MultiHeadSelfAttention(torch.nn.Module):
         self.out_proj = torch.nn.Linear(d_out, d_out)
         self.dropout = torch.nn.Dropout(dropout)
 
+        cos, sin = precompute_rope(
+                    self.d_head,
+                    context_length
+                )
+        
+        self.register_buffer("rope_cos", cos)
+        self.register_buffer("rope_sin", sin)
+
         self.register_buffer("mask", torch.tril(torch.ones(context_length, context_length)))
 
     def forward(self, x):
@@ -79,6 +87,9 @@ class MultiHeadSelfAttention(torch.nn.Module):
         q = self.w_query(x).view(batch_size, seq_length, self.num_heads, self.d_head).transpose(1, 2)
         k = self.w_key(x).view(batch_size, seq_length, self.num_heads, self.d_head).transpose(1, 2)
         v = self.w_value(x).view(batch_size, seq_length, self.num_heads, self.d_head).transpose(1, 2)
+
+        q = apply_rope(q, self.rope_cos, self.rope_sin)
+        k = apply_rope(k, self.rope_cos, self.rope_sin)
 
         # Compute attention scores
         attn_scores = q @ k.transpose(2, 3)

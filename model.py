@@ -42,6 +42,22 @@ class FeedForward(nn.Module):
     def forward(self, x):
         return self.layers(x)
 
+class SwiGLU_g(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        hidden_dim = int((8 / 3) * cfg["emb_dim"])
+        self.gate_proj = nn.Linear(cfg['emb_dim'], hidden_dim)
+        self.value_proj = nn.Linear(cfg['emb_dim'], hidden_dim)
+        self.out_proj = nn.Linear(hidden_dim, cfg['emb_dim'])
+
+    def forward(self, x):
+
+        gate = nn.functional.silu(self.gate_proj(x))
+        value = self.value_proj(x)
+
+        x = gate * value
+
+        return self.out_proj(x)
 
 class FeedForward_Deep(nn.Module):
     def __init__(self, layer_sizes, use_shortcut=False):
@@ -50,15 +66,15 @@ class FeedForward_Deep(nn.Module):
         self.layers = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(layer_sizes[0], layer_sizes[1]),
-                nn.GELU()
+                nn.SwiGLU_g()
             ),
             nn.Sequential(
                 nn.Linear(layer_sizes[1], layer_sizes[2]),
-                nn.GELU()
+                nn.SwiGLU_g()
             ),
             nn.Sequential(
                 nn.Linear(layer_sizes[2], layer_sizes[3]),
-                nn.GELU()
+                nn.SwiGLU_g()
             ),
             nn.Linear(layer_sizes[3], layer_sizes[4]),
         ])
@@ -104,7 +120,7 @@ class GPTModel(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.token_embedding = nn.Embedding(cfg['vocab_size'], cfg['emb_dim'])
-        self.position_embedding = nn.Embedding(cfg['context_length'], cfg['emb_dim'])
+        # self.position_embedding = nn.Embedding(cfg['context_length'], cfg['emb_dim'])
         self.drop_emb = nn.Dropout(cfg['drop_rate'])
         self.transformer_blocks = nn.ModuleList([TransformerBlock(cfg) for _ in range(cfg['num_layers'])])
         self.ln_final = RMSNorm_g(cfg['emb_dim'])
@@ -112,10 +128,11 @@ class GPTModel(nn.Module):
 
     def forward(self, x):
         batch_size, seq_length = x.size()
-        token_embeddings = self.token_embedding(x)
+        # token_embeddings = self.token_embedding(x)
 
-        positions = torch.arange(seq_length, device=x.device).unsqueeze(0).expand(batch_size, seq_length)
-        x = token_embeddings + self.position_embedding(positions)
+        # positions = torch.arange(seq_length, device=x.device).unsqueeze(0).expand(batch_size, seq_length)
+        # x = token_embeddings + self.position_embedding(positions)
+        x = self.token_embedding(x)
         x = self.drop_emb(x)
         for block in self.transformer_blocks:
             x = block(x)
