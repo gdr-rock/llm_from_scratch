@@ -61,3 +61,4 @@ SwiGLU
 - SiLU is not restricted to values between 0 and 1. It can also produce negative values or values greater than 1.
 - SwiGLU uses three linear projections instead of two, so using 4 * emb_dim gives you approximately 50% more projection parameters than your old GELU feed-forward.
 - use hidden_dim = int((8 / 3) * cfg["emb_dim"])
+- This is FFN not a activation function. But gated activation, but class includes the input and output projections, which is why it replaces the complete FFN.

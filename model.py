@@ -59,6 +59,21 @@ class SwiGLU_g(nn.Module):
 
         return self.out_proj(x)
 
+class FeedForwardDeep_SwiGLU(nn.Module):
+    def __init__(self, cfg, num_layers=3):
+        super().__init__()
+
+        self.layers = nn.ModuleList([
+            SwiGLU_g(cfg)
+            for _ in range(num_layers)
+        ])
+
+    def forward(self, x):
+        for layer in self.layers:
+            x = x + layer(x)
+
+        return x
+
 class FeedForward_Deep(nn.Module):
     def __init__(self, layer_sizes, use_shortcut=False):
         super().__init__()
@@ -66,15 +81,15 @@ class FeedForward_Deep(nn.Module):
         self.layers = nn.ModuleList([
             nn.Sequential(
                 nn.Linear(layer_sizes[0], layer_sizes[1]),
-                nn.SwiGLU_g()
+                nn.GELU()
             ),
             nn.Sequential(
                 nn.Linear(layer_sizes[1], layer_sizes[2]),
-                nn.SwiGLU_g()
+                nn.GELU()
             ),
             nn.Sequential(
                 nn.Linear(layer_sizes[2], layer_sizes[3]),
-                nn.SwiGLU_g()
+                nn.GELU()
             ),
             nn.Linear(layer_sizes[3], layer_sizes[4]),
         ])
@@ -100,7 +115,9 @@ class TransformerBlock(nn.Module):
             dropout=cfg['drop_rate'],
             qkv_bias=cfg['qkv_bias'],
         )
-        self.ff = FeedForward(cfg)
+        # self.ff = FeedForward(cfg)
+        self.ff = SwiGLU_g(cfg)
+        # self.ff = FeedForwardDeep_SwiGLU(cfg, num_layers=3)
         self.ln1 = RMSNorm_g(cfg['emb_dim'])
         self.ln2 = RMSNorm_g(cfg['emb_dim'])
         self.drop_emb = nn.Dropout(cfg['drop_rate'])
