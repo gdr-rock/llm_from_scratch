@@ -123,16 +123,16 @@ class TransformerBlock(nn.Module):
         self.ln2 = RMSNorm_g(cfg['emb_dim'])
         self.drop_emb = nn.Dropout(cfg['drop_rate'])
 
-    def forward(self, x):
+    def forward(self, x, past_k=None, past_v=None):
         shortcut = x
         x = self.ln1(x)
-        x = self.attention(x)
+        x, new_k, new_v= self.attention(x, past_k = past_k, past_v=past_v)
         x = self.drop_emb(x) + shortcut
         shortcut = x
         x = self.ln2(x)
         x = self.ff(x)
         x = self.drop_emb(x) + shortcut
-        return x
+        return x, new_k, new_v
 
 class GPTModel(nn.Module):
     def __init__(self, cfg):
@@ -144,7 +144,7 @@ class GPTModel(nn.Module):
         self.ln_final = RMSNorm_g(cfg['emb_dim'])
         self.output_layer = nn.Linear(cfg['emb_dim'], cfg['vocab_size'], bias=False)
 
-    def forward(self, x):
+    def forward(self, x, past_key_values=None, use_cache=True):
         batch_size, seq_length = x.size()
         # token_embeddings = self.token_embedding(x)
 
@@ -152,10 +152,20 @@ class GPTModel(nn.Module):
         # x = token_embeddings + self.position_embedding(positions)
         x = self.token_embedding(x)
         x = self.drop_emb(x)
-        for block in self.transformer_blocks:
-            x = block(x)
+        new_caches = []
+        for i, block in enumerate(self.transformer_blocks):
+            # x, new_k, new_v = block(x)
+            past_k = past_key_values[i][0] if past_key_values is not None else None
+            past_v = past_key_values[i][1] if past_key_values is not None else None
+            x, new_k, new_v = block(x, past_k=past_k, past_v=past_v)
+            
+            if use_cache:
+                new_caches.append((new_k, new_v))
+
         x = self.ln_final(x)
         logits = self.output_layer(x)
+        if use_cache:
+            return logits, new_caches
         return logits
 
 if __name__ == "__main__":
@@ -167,13 +177,14 @@ if __name__ == "__main__":
     "num_layers": 2,
     "drop_rate": 0.1,
     "qkv_bias": False,
+    "num_kv_heads": 2,
     }
     
     model = GPTModel(cfg)
     tokens = torch.randint(0, cfg["vocab_size"], (2, 8))
     targets = torch.randint(0, cfg["vocab_size"], (2, 8))
     
-    logits = model(tokens)
+    logits = model(tokens, use_cache=False)
     assert logits.shape == (2, 8, 1000)
     assert torch.isfinite(logits).all()
     
@@ -210,8 +221,8 @@ if __name__ == "__main__":
     print("x1 and x2")
     print(x2)
     with torch.no_grad():
-        logits1 = model(x1)
-        logits2 = model(x2)
+        logits1, cache1 = model(x1, use_cache=True)
+        logits2, cache2 = model(x2, use_cache=True)
 
     assert torch.allclose(
         logits1[:, :5],

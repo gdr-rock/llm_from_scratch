@@ -62,3 +62,10 @@ SwiGLU
 - SwiGLU uses three linear projections instead of two, so using 4 * emb_dim gives you approximately 50% more projection parameters than your old GELU feed-forward.
 - use hidden_dim = int((8 / 3) * cfg["emb_dim"])
 - This is FFN not a activation function. But gated activation, but class includes the input and output projections, which is why it replaces the complete FFN.
+
+KV Cache
+- RoPE needs an offset, as we are computing from the new token postion
+- mask also needs to be offset accordingly
+- new_cache is stored in the GPTModel during the inference, which then uses this during forward passing
+- K,V cache is not used during training.
+- 

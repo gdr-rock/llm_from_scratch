@@ -32,8 +32,7 @@ def precompute_rope(head_dim, context_length, base=10000):
 
     return cos, sin
 
-def apply_rope(x, cos, sin):
-
+def apply_rope(x, cos, sin, start_pos=0):
     # x: [batch, heads, seq_len, head_dim]
     B, H, T, D = x.shape
 
@@ -45,8 +44,8 @@ def apply_rope(x, cos, sin):
     rotated = torch.cat([-x2, x1], dim=-1)
 
     # Select the positions we need
-    cos = cos[:T].unsqueeze(0).unsqueeze(0)
-    sin = sin[:T].unsqueeze(0).unsqueeze(0)
+    cos = cos[start_pos:start_pos + T].unsqueeze(0).unsqueeze(0)
+    sin = sin[start_pos:start_pos + T].unsqueeze(0).unsqueeze(0)
 
     # Apply 2D rotations to feature pairs
     result = x * cos + rotated * sin
@@ -63,7 +62,6 @@ class MultiHeadSelfAttention(torch.nn.Module):
         self.context_length = context_length
         self.num_kv_heads = num_kv_heads
         self.num_groups = num_heads // num_kv_heads
-# 4
         self.w_query = torch.nn.Linear(d_in, self.d_head * self.num_heads, bias=qkv_bias)
         self.w_key = torch.nn.Linear(d_in, self.d_head * self.num_kv_heads, bias=qkv_bias)
         self.w_value = torch.nn.Linear(d_in, self.d_head * self.num_kv_heads, bias=qkv_bias)
@@ -82,32 +80,43 @@ class MultiHeadSelfAttention(torch.nn.Module):
 
         self.register_buffer("mask", torch.tril(torch.ones(context_length, context_length)))
 
-    def forward(self, x):
+    def forward(self, x, past_k=None, past_v=None):
         batch_size, seq_length, d_in = x.size()
-
+        
         # Compute Q, K, V
         q = self.w_query(x).view(batch_size, seq_length, self.num_heads, self.d_head).transpose(1, 2)
         k = self.w_key(x).view(batch_size, seq_length, self.num_kv_heads, self.d_head).transpose(1, 2)
         v = self.w_value(x).view(batch_size, seq_length, self.num_kv_heads, self.d_head).transpose(1, 2)
 
-        q = apply_rope(q, self.rope_cos, self.rope_sin)
-        k = apply_rope(k, self.rope_cos, self.rope_sin)
 
+
+        past_len = past_k.shape[2] if past_k is not None else 0
+
+        q = apply_rope(q, self.rope_cos, self.rope_sin, start_pos=past_len)
+        k = apply_rope(k, self.rope_cos, self.rope_sin, start_pos=past_len)
+
+        if past_k is not None and past_v is not None:
+            k = torch.cat([past_k, k], dim=2)
+            v = torch.cat([past_v, v], dim=2)
+        new_k = k
+        new_v = v
+        total_len = k.shape[2]  # After concatenation, before head repetition
         k = torch.repeat_interleave(k, self.num_groups, dim=1)
+        v = torch.repeat_interleave(v, self.num_groups, dim=1)
 
         # Compute attention scores
         attn_scores = q @ k.transpose(2, 3)
-        attn_scores = attn_scores.masked_fill_(self.mask[:seq_length, :seq_length] == 0, float('-inf'))
+        # attn_scores = attn_scores.masked_fill_(self.mask[:seq_length, :seq_length] == 0, float('-inf'))
+        mask = self.mask[past_len:past_len + seq_length,:total_len] == 0
+        attn_scores = attn_scores.masked_fill_(mask, float('-inf'))
 
         attn_weights = torch.softmax(attn_scores / (self.d_head ** 0.5), dim=-1)
         attn_weights = self.dropout(attn_weights)
 
-        v = torch.repeat_interleave(v, self.num_groups, dim=1)
-
         output = (attn_weights @ v).transpose(1, 2).contiguous().view(batch_size, seq_length, -1)
         output = self.out_proj(output)
 
-        return output
+        return output, new_k, new_v
 
 if __name__ == "__main__":
     x = torch.randn(2, 8, 64)
@@ -118,9 +127,11 @@ if __name__ == "__main__":
         num_heads=4,
         context_length=8,
         dropout=0.0,
+        qkv_bias=False,
+        num_kv_heads=2,
     )
 
-    out = attn(x)
+    out, new_k, new_v = attn(x)
 
     print(out.shape)
 
