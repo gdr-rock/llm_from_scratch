@@ -5,8 +5,6 @@ def precompute_rope(head_dim, context_length, base=10000):
 
     assert head_dim % 2 == 0
 
-    # TODO:
-    # create frequencies for head_dim // 2 pairs
     # Create rotation pairs for each position in the context length
     indices = torch.arange(0, head_dim, 2).float()
 
@@ -56,15 +54,19 @@ def apply_rope(x, cos, sin):
     return result.to(dtype=x.dtype)
 
 class MultiHeadSelfAttention(torch.nn.Module):
-    def __init__(self, d_in, d_out, context_length, dropout, num_heads, qkv_bias = False):
+    def __init__(self, d_in, d_out, context_length, dropout, num_heads, num_kv_heads, qkv_bias = False):
+
+        assert num_heads % num_kv_heads == 0
         super().__init__()
         self.num_heads = num_heads
         self.d_head = d_out // num_heads
         self.context_length = context_length
-
-        self.w_query = torch.nn.Linear(d_in, d_out, bias=qkv_bias)
-        self.w_key = torch.nn.Linear(d_in, d_out, bias=qkv_bias)
-        self.w_value = torch.nn.Linear(d_in, d_out, bias=qkv_bias)
+        self.num_kv_heads = num_kv_heads
+        self.num_groups = num_heads // num_kv_heads
+# 4
+        self.w_query = torch.nn.Linear(d_in, self.d_head * self.num_heads, bias=qkv_bias)
+        self.w_key = torch.nn.Linear(d_in, self.d_head * self.num_kv_heads, bias=qkv_bias)
+        self.w_value = torch.nn.Linear(d_in, self.d_head * self.num_kv_heads, bias=qkv_bias)
 
         # self.qkv = torch.nn.Linear(d_in, 3 * d_out, bias=qkv_bias)
         self.out_proj = torch.nn.Linear(d_out, d_out)
@@ -85,11 +87,13 @@ class MultiHeadSelfAttention(torch.nn.Module):
 
         # Compute Q, K, V
         q = self.w_query(x).view(batch_size, seq_length, self.num_heads, self.d_head).transpose(1, 2)
-        k = self.w_key(x).view(batch_size, seq_length, self.num_heads, self.d_head).transpose(1, 2)
-        v = self.w_value(x).view(batch_size, seq_length, self.num_heads, self.d_head).transpose(1, 2)
+        k = self.w_key(x).view(batch_size, seq_length, self.num_kv_heads, self.d_head).transpose(1, 2)
+        v = self.w_value(x).view(batch_size, seq_length, self.num_kv_heads, self.d_head).transpose(1, 2)
 
         q = apply_rope(q, self.rope_cos, self.rope_sin)
         k = apply_rope(k, self.rope_cos, self.rope_sin)
+
+        k = torch.repeat_interleave(k, self.num_groups, dim=1)
 
         # Compute attention scores
         attn_scores = q @ k.transpose(2, 3)
@@ -97,6 +101,8 @@ class MultiHeadSelfAttention(torch.nn.Module):
 
         attn_weights = torch.softmax(attn_scores / (self.d_head ** 0.5), dim=-1)
         attn_weights = self.dropout(attn_weights)
+
+        v = torch.repeat_interleave(v, self.num_groups, dim=1)
 
         output = (attn_weights @ v).transpose(1, 2).contiguous().view(batch_size, seq_length, -1)
         output = self.out_proj(output)

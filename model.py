@@ -114,6 +114,7 @@ class TransformerBlock(nn.Module):
             context_length=cfg['context_length'],
             dropout=cfg['drop_rate'],
             qkv_bias=cfg['qkv_bias'],
+            num_kv_heads=cfg['num_kv_heads']
         )
         # self.ff = FeedForward(cfg)
         self.ff = SwiGLU_g(cfg)
